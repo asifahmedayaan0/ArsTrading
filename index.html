@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARS Market Analysis Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://aistudiocdn.com/react@^19.1.1",
+          "react-dom/client": "https://aistudiocdn.com/react-dom@^19.1.1/client",
+          "@google/genai": "https://aistudiocdn.com/@google/genai@^1.15.0"
+        }
+      }
+    </script>
+  </head>
+  <body class="bg-gray-900 text-white font-sans">
+    <div id="root"></div>
+    <script type="text/babel" data-type="module">
+      import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+      import ReactDOM from 'react-dom/client';
+      import { GoogleGenAI } from "@google/genai";
+
+      // --- START CONSTANTS ---
+      const TIMEFRAMES_OPTIONS = ["M15", "H1", "H4", "D1"];
+      const TIMEZONE_OPTIONS = [
+        "UTC", "America/New_York", "Europe/London", "Europe/Berlin", "Asia/Tokyo", "Australia/Sydney",
+      ];
+      const HORIZON_OPTIONS = ["Scalping", "Intraday", "Swing"];
+      const LANGUAGE_OPTIONS = [
+        { code: 'en', name: 'English' },
+        { code: 'bn', name: 'Bangla' },
+      ];
+      const AUTO_REFRESH_OPTIONS = [
+        { value: 0, label: 'Off' },
+        { value: 60, label: '1 minute' },
+        { value: 300, label: '5 minutes' },
+        { value: 600, label: '10 minutes' },
+      ];
+      const TRANSLATIONS = {
+        en: {
+          headerTitle: 'ARS Market Analysis Assistant',
+          headerDescription: 'Generate an educational market overview combining news catalysts with technical analysis for your chosen instruments.',
+          instrumentsLabel: 'Instruments (comma-separated)',
+          instrumentsPlaceholder: 'e.g., EURUSD, XAUUSD, BTCUSD',
+          timeframesLabel: 'Timeframes',
+          timezoneLabel: 'Timezone',
+          horizonLabel: 'Horizon',
+          languageLabel: 'Language',
+          uploadChartLabel: 'Upload Chart Image (Optional)',
+          uploadChartButton: 'Select Image',
+          clearImageButton: 'Clear Image',
+          submitButton: 'Generate Analysis',
+          submitButtonLoading: 'Analyzing...',
+          loadingTitle: 'Generating Analysis...',
+          loadingDescription: 'The AI is processing catalysts and technical levels. This may take a moment.',
+          errorTitle: 'Error: ',
+          analysisTitle: 'Market Analysis Overview',
+          readAloud: 'Read Aloud',
+          reading: 'Reading...',
+          stopReading: 'Stop Reading',
+          autoRefreshLabel: 'Auto-Refresh',
+          nextUpdateIn: 'Next update in',
+          sourcesTitle: 'Sources',
+          placeholderTitle: 'Your analysis, grounded in live Google Search data, will appear here.',
+          placeholderDescription: 'This tool provides real-time market insights by analyzing the latest news and events.',
+          apiKeyLabel: 'Gemini API Key',
+          apiKeyPlaceholder: 'Enter your API key here',
+          saveApiKeyButton: 'Save Key',
+          clearApiKeyButton: 'Clear Key',
+          editApiKeyButton: 'Edit Key',
+          cancelButton: 'Cancel',
+          apiKeySaved: 'API Key is saved.',
+          apiKeyMissing: 'API Key is missing. Please set it to generate an analysis.',
+          apiKeyMissingError: "Gemini API Key is not configured. Please enter and save your key to proceed.",
+          analysisTab: 'Market Analysis',
+          strategyTab: 'Strategy Generator',
+          generateStrategyButton: 'Generate Livermore Strategy',
+          strategyTitle: 'Jesse Livermore-Inspired Strategy',
+          strategyDescription: 'Generate a complete, rule-based trading strategy based on the timeless principles of Jesse Livermore.',
+          strategyLoading: 'Generating Strategy...',
+        },
+        bn: {
+          headerTitle: 'এআরএস মার্কেট অ্যানালাইসিস অ্যাসিস্ট্যান্ট',
+          headerDescription: 'আপনার নির্বাচিত ইন্সট্রুমেন্টের জন্য প্রযুক্তিগত বিশ্লেষণের সাথে সংবাদ অনুঘটকগুলির সমন্বয়ে একটি শিক্ষামূলক বাজার ওভারভিউ তৈরি করুন।',
+          instrumentsLabel: 'ইনস্ট্রুমেন্ট (কমা দ্বারা পৃথক)',
+          instrumentsPlaceholder: 'যেমন EURUSD, XAUUSD, BTCUSD',
+          timeframesLabel: 'টাইমফ্রেম',
+          timezoneLabel: 'টাইমজোন',
+          horizonLabel: 'হরাইজন',
+          languageLabel: 'ভাষা',
+          uploadChartLabel: 'চার্ট ইমেজ আপলোড করুন (ঐচ্ছিক)',
+          uploadChartButton: 'ছবি নির্বাচন করুন',
+          clearImageButton: 'ছবি সরান',
+          submitButton: 'বিশ্লেষণ তৈরি করুন',
+          submitButtonLoading: 'বিশ্লেষণ চলছে...',
+          loadingTitle: 'বিশ্লেষণ তৈরি হচ্ছে...',
+          loadingDescription: 'এআই অনুঘটক এবং প্রযুক্তিগত স্তরগুলি প্রক্রিয়া করছে। এটি এক মুহূর্ত সময় নিতে পারে।',
+          errorTitle: 'ত্রুটি: ',
+          analysisTitle: 'বাজার বিশ্লেষণ ওভারভিউ',
+          readAloud: 'পড়ে শোনান',
+          reading: 'পড়া হচ্ছে...',
+          stopReading: 'পড়া বন্ধ করুন',
+          autoRefreshLabel: 'স্বয়ংক্রিয় রিফ্রেশ',
+          nextUpdateIn: 'পরবর্তী আপডেট',
+          sourcesTitle: 'উৎস',
+          placeholderTitle: 'লাইভ গুগল সার্চ ডেটার উপর ভিত্তি করে আপনার বিশ্লেষণ এখানে উপস্থিত হবে।',
+          placeholderDescription: 'এই টুলটি সর্বশেষ সংবাদ এবং ঘটনা বিশ্লেষণ করে রিয়েল-টাইম বাজারের অন্তর্দৃষ্টি প্রদান করে।',
+          apiKeyLabel: 'জেমিনি এপিআই কী',
+          apiKeyPlaceholder: 'আপনার এপিআই কী এখানে লিখুন',
+          saveApiKeyButton: 'কী সংরক্ষণ করুন',
+          clearApiKeyButton: 'কী সরান',
+          editApiKeyButton: 'কী সম্পাদনা করুন',
+          cancelButton: 'বাতিল',
+          apiKeySaved: 'এপিআই কী সংরক্ষিত আছে।',
+          apiKeyMissing: 'এপিআই কী অনুপস্থিত। বিশ্লেষণ তৈরি করতে অনুগ্রহ করে এটি সেট করুন।',
+          apiKeyMissingError: "জেমিনি এপিআই কী কনফিগার করা হয়নি। এগিয়ে যেতে অনুগ্রহ করে আপনার কী লিখুন এবং সংরক্ষণ করুন।",
+          analysisTab: 'বাজার বিশ্লেষণ',
+          strategyTab: 'স্ট্র্যাটেজি জেনারেটর',
+          generateStrategyButton: 'লিভারমোর স্ট্র্যাটেজি তৈরি করুন',
+          strategyTitle: 'জেসি লিভারমোর-অনুপ্রাণিত স্ট্র্যাটেজি',
+          strategyDescription: 'জেসি লিভারমোরের চিরন্তন নীতির উপর ভিত্তি করে একটি সম্পূর্ণ, নিয়ম-ভিত্তিক ট্রেডিং স্ট্র্যাটেজি তৈরি করুন।',
+          strategyLoading: 'স্ট্র্যাটেজি তৈরি হচ্ছে...',
+        }
+      };
+      // --- END CONSTANTS ---
+
+      // --- START ICONS ---
+      const SparklesIcon = (props) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+          <path d="M12 3L9.5 8.5L4 11L9.5 13.5L12 19L14.5 13.5L20 11L14.5 8.5L12 3z" /><path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
+        </svg>
+      );
+      const PaperclipIcon = (props) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+          <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+        </svg>
+      );
+      const XCircleIcon = (props) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+          <circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+      );
+      const SpeakerIcon = (props) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+        </svg>
+      );
+      const StopIcon = (props) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+          <rect x="6" y="6" width="12" height="12"></rect>
+        </svg>
+      );
+      const LinkIcon = (props) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.71"></path>
+        </svg>
+      );
+      const KeyIcon = (props) => (
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+          </svg>
+      );
+      const CheckCircleIcon = (props) => (
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+      );
+      const AlertTriangleIcon = (props) => (
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+      );
+       const LightbulbIcon = (props) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M15 14c.2-1 .7-1.7 1.5-2.5C17.7 10.2 18 9 18 7.5c0-2.2-1.8-4-4-4-2.2 0-4 1.8-4 4 0 1.5.3 2.7 1.5 3.9.8.8 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>
+        </svg>
+    );
+      // --- END ICONS ---
+
+      // --- START GEMINI SERVICE ---
+      const getAnalysisSystemPrompt = (params) => {
+        const { language, horizon, timeframes } = params;
+        const languageName = language === 'bn' ? 'Bangla' : 'English';
+        const horizonSpecificInstructions = {
+            Scalping: "The analysis must be extremely focused on the very short-term (minutes to a few hours, like M15-H1 timeframes). Prioritize immediate price action, micro-support/resistance levels, and indicators like RSI and MACD on lower timeframes. News analysis should focus on imminent, high-impact events.",
+            Intraday: "The analysis should focus on the current trading day (e.g., H1-H4 timeframes). Identify key intraday levels, chart patterns, and the impact of today's economic data. The outlook should be for the next several hours to the end of the trading session.",
+            Swing: "The analysis should take a multi-day to multi-week perspective (e.g., H4, D1, W1 timeframes). Focus on major trend structures, significant support and resistance zones on higher timeframes, and the influence of major macroeconomic themes."
+        };
+        const selectedHorizonInstruction = horizonSpecificInstructions[horizon] || horizonSpecificInstructions.Intraday;
+
+        return `You are a professional trading analyst. Your job is to provide a complete technical analysis for educational, non-advisory purposes. Your analysis must be clear, step-by-step, and easy for a beginner to understand.
+
+**CRITICAL REQUIREMENT 1: LANGUAGE.** Your ENTIRE response MUST be in the ${languageName} language.
+
+**CRITICAL REQUIREMENT 2: GROUNDING IN LIVE DATA.** Your entire analysis **MUST** be based exclusively on verifiable, live data obtained from your Google Search tool for recent news and fundamental catalysts. All technical levels and patterns must be based on current price action.
+
+**CRITICAL REQUIREMENT 3: EDUCATIONAL AND NON-ADVISORY.** All analysis, especially potential trade ideas, must be framed as hypothetical, educational examples. Use probabilistic language ("may," "could," "likely") and never give direct financial advice (e.g., "buy now" or "sell here").
+
+**Analysis Instructions for each instrument:**
+If the user provides a chart image, your analysis of points 1-4 must be heavily based on what is visible on that chart.
+Your overall analysis should be tailored to the user's selected trading horizon: **${horizon}**. ${selectedHorizonInstruction}
+
+**Analysis Structure:**
+
+1.  **Trend Identification (Uptrend, Downtrend, Sideways):**
+    - State the current trend on the primary timeframes (${timeframes.join(', ')}).
+    - Justify your conclusion with price action (e.g., higher highs/lows, lower highs/lows).
+
+2.  **Key Support and Resistance Levels:**
+    - List the most important support and resistance levels.
+    - Explain their significance (e.g., previous swing points, psychological levels, demand/supply zones).
+
+3.  **Chart Patterns:**
+    - Identify any visible chart patterns (e.g., Head & Shoulders, Double Top/Bottom, Triangles, Flags).
+    - Explain what the pattern typically suggests.
+
+4.  **Technical Indicators Analysis:**
+    - **Moving Averages:** Analyze the 50 EMA and 200 EMA. Discuss their position relative to price and each other (e.g., Golden Cross, Death Cross) and their role as dynamic support/resistance.
+    - **RSI (Relative Strength Index):** Note the current RSI value. Mention if it indicates overbought (>70) or oversold (<30) conditions and look for any potential divergences with price.
+    - **MACD (Moving Average Convergence Divergence):** Describe the state of the MACD and signal lines (e.g., bullish/bearish crossover) and the histogram momentum.
+    - **Volume Analysis:** Comment on trading volume. Is it confirming the trend or suggesting weakness?
+
+5.  **News & Macro Catalysts:**
+    - Use Google Search to find and list recent (last 24-72 hours) and upcoming news or economic events relevant to the instrument.
+    - Briefly explain their potential bullish or bearish impact.
+
+6.  **Overall Outlook & Scenarios:**
+    - Synthesize all the above analysis into a concise outlook.
+    - Conclude with a mandatory "Bullish Outlook", "Bearish Outlook", or "Neutral/Ranging Outlook" heading. Provide a clear justification.
+    - Briefly describe a potential bullish scenario and a potential bearish scenario, mentioning key levels that might act as confirmation or invalidation.
+
+7.  **Educational Trade Idea (Hypothetical Example):**
+    - **CRITICAL PREFACE:** Start with: "This is a hypothetical example for educational purposes only and is NOT financial advice."
+    - **Potential Entry/Exit Points:** Based on the analysis, suggest potential entry zones and take profit targets. Frame it as an example (e.g., "A trader looking for a bullish setup might watch for a pullback to the [support level]...").
+    - **Risk Management Tips:**
+        - **Stop Loss:** Suggest a logical placement for a hypothetical stop loss (e.g., "...with a potential stop loss below the recent swing low at [level].").
+        - **Risk-to-Reward Ratio:** Briefly explain the concept in the context of the example.
+
+8.  **Summary for Beginners:**
+    - Provide a one-paragraph takeaway of the entire analysis in simple, easy-to-understand language.
+
+**Final Formatting Rules:**
+- **Timestamp:** Start your entire response with the UTC date and time of generation on its own line: 'Analysis Generated At: YYYY-MM-DD HH:MM:SS UTC'.
+- **Disclaimer:** End your response with a final disclaimer: "This analysis is for educational purposes only and not financial advice. Trading involves significant risk. Always conduct your own research."
+- **Language:** The entire response must be in ${languageName}.
+`;
+      }
+      
+      const generateAnalysis = async (params) => {
+          const { apiKey, language } = params;
+          const missingKeyErrorText = (TRANSLATIONS[language] || TRANSLATIONS['en']).apiKeyMissingError;
+      
+          if (!apiKey) {
+              return { 
+                  text: `Error: ${missingKeyErrorText}`, 
+                  sources: [] 
+              };
+          }
+          
+          const ai = new GoogleGenAI({ apiKey: apiKey });
+      
+          try {
+              const userRequestText = `Analyze: ${params.instruments}; Timeframes: ${params.timeframes.join(', ')}; Timezone: ${params.timezone}; Horizon: ${params.horizon}.`;
+              const systemInstruction = getAnalysisSystemPrompt(params);
+              let contents;
+      
+              if (params.chartImage) {
+                  const imagePart = { inlineData: { mimeType: params.chartImage.mimeType, data: params.chartImage.data } };
+                  const textPart = { text: userRequestText };
+                  contents = { parts: [imagePart, textPart] };
+              } else {
+                  contents = userRequestText;
+              }
+      
+              const response = await ai.models.generateContent({
+                  model: 'gemini-2.5-flash',
+                  contents: contents,
+                  config: {
+                      systemInstruction: systemInstruction,
+                      tools: [{googleSearch: {}}],
+                  }
+              });
+      
+              const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+              return { text: response.text, sources: sources };
+          } catch (error) {
+              console.error("Error generating analysis:", error);
+              if (error instanceof Error) {
+                  return { text: `Error: Failed to generate analysis. Please check your API key and network connection. Details: ${error.message}`, sources: [] };
+              }
+              return { text: "An unknown error occurred while generating the analysis.", sources: [] };
+          }
+      };
+
+      const getStrategySystemPrompt = (language) => {
+        const languageName = language === 'bn' ? 'Bangla' : 'English';
+        return `You are a professional trading strategy generator. Your task is to create a complete and actionable trading strategy inspired by Jesse Livermore's timeless principles.
+
+**CRITICAL REQUIREMENT 1: LANGUAGE.** Your ENTIRE response MUST be in the ${languageName} language.
+
+**CRITICAL REQUIREMENT 2: LIVERMORE'S PRINCIPLES.** The strategy MUST deeply embed the following core ideas from Jesse Livermore:
+- **Follow the Trend:** The strategy must be trend-following. No counter-trend setups.
+- **Cut Losses Quickly:** Strict and clear stop-loss rules are mandatory.
+- **Let Profits Run:** The strategy must prioritize capturing large moves, using methods like trailing stops instead of fixed targets.
+- **Volume Confirms Price:** Volume analysis must be a key component for validating entries.
+- **Patience and Discipline:** The rules should promote waiting for high-probability setups.
+
+**Output Structure:**
+
+You must generate the strategy using the following step-by-step format. Use Markdown for headings, bold text, and lists.
+
+1.  **Strategy Name:** Create a compelling name for the strategy.
+
+2.  **Core Philosophy:** Briefly explain the strategy's goal and how it aligns with Livermore's philosophy.
+
+3.  **Market & Timeframe:**
+    -   **Best Suited Markets:** Specify which markets the strategy is best for (e.g., stocks, forex, crypto) and why (e.g., liquidity, volatility).
+    -   **Optimal Timeframe:** Recommend a primary timeframe for analysis and execution (e.g., Daily for trend, H4 for entry).
+
+4.  **Trend Detection:**
+    -   Describe a clear, rule-based method to identify major uptrends and downtrends. You can use tools like moving averages (e.g., 200 SMA) and price action (e.g., higher highs/lows).
+
+5.  **Entry Rules:**
+    -   Provide exact, unambiguous conditions for opening a long (buy) position in an uptrend.
+    -   Provide exact, unambiguous conditions for opening a short (sell) position in a downtrend.
+    -   Incorporate breakouts from consolidation patterns (e.g., ranges, flags) and mandatory volume confirmation for entries.
+
+6.  **Exit Rules:**
+    -   **Stop Loss Placement:** Explain how to set the initial protective stop loss. This could be based on price structure (e.g., below a swing low) or volatility (e.g., using ATR).
+    -   **Profit-Taking / Trailing Stop:** Describe a dynamic method to let profits run. Explain how to use a trailing stop (e.g., based on a moving average, Parabolic SAR, or price structure) to exit a winning trade.
+
+7.  **Risk Management:**
+    -   **Position Sizing:** Provide a clear formula or rule for position sizing to ensure risk is controlled (e.g., the 1% or 2% rule).
+    -   **Maximum Drawdown:** Suggest a guideline for when to stop trading and review performance.
+
+8.  **Psychology Rules:**
+    -   List key psychological guidelines for a trader following this strategy, focusing on discipline, emotional control, and patience.
+
+9.  **Optional Enhancements:**
+    -   Suggest one or two optional indicators or techniques that could be used for extra confirmation (e.g., RSI for momentum) or trade management (e.g., scaling into positions).
+
+**Final Disclaimer:**
+- End your entire response with a disclaimer: "This strategy is for educational purposes only and does not constitute financial advice. Backtesting and paper trading are essential before risking real capital."
+`;
+      }
+
+      const generateLivermoreStrategy = async ({ apiKey, language }) => {
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+        try {
+            const systemInstruction = getStrategySystemPrompt(language);
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: "Generate the Jesse Livermore trading strategy.",
+                config: {
+                    systemInstruction: systemInstruction,
+                }
+            });
+            return response.text;
+        } catch (error) {
+            console.error("Error generating strategy:", error);
+            if (error instanceof Error) {
+                return `Error: Failed to generate strategy. Details: ${error.message}`;
+            }
+            return "An unknown error occurred while generating the strategy.";
+        }
+      };
+      // --- END GEMINI SERVICE ---
+
+      // --- START COMPONENTS ---
+      const Clock = () => {
+        const [time, setTime] = useState(new Date());
+
+        useEffect(() => {
+          const timerId = setInterval(() => setTime(new Date()), 1000);
+          return () => clearInterval(timerId);
+        }, []);
+
+        const formattedTime = time.toLocaleString(undefined, {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+        });
+
+        return (
+          <div className="mt-4 text-sm text-gray-400 font-mono tracking-wider">
+            <p>{formattedTime}</p>
+          </div>
+        );
+      };
+
+      const Header = ({ translations }) => {
+        return (
+          <header className="text-center py-8 border-b border-gray-700/50">
+            <div className="flex items-center justify-center gap-4">
+              <SparklesIcon className="w-10 h-10 text-cyan-400" />
+              <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-indigo-500 text-transparent bg-clip-text">
+                {translations.headerTitle}
+              </h1>
+            </div>
+            <p className="mt-3 text-lg text-gray-400 max-w-2xl mx-auto">
+              {translations.headerDescription}
+            </p>
+            <Clock />
+          </header>
+        );
+      };
+
+      const ApiKeyManager = ({ apiKey, onApiKeySave, translations }) => {
+          const [inputValue, setInputValue] = useState("");
+          const [isEditing, setIsEditing] = useState(false);
+
+          useEffect(() => {
+              setIsEditing(!apiKey);
+          }, [apiKey]);
+          
+          useEffect(() => {
+              if(isEditing) {
+                  setInputValue(apiKey || "");
+              }
+          }, [isEditing, apiKey]);
+
+          const handleSave = () => {
+              if (inputValue.trim()) {
+                  onApiKeySave(inputValue.trim());
+                  setIsEditing(false);
+              }
+          };
+          
+          const handleClear = () => {
+              onApiKeySave("");
+              setInputValue("");
+              setIsEditing(true);
+          };
+          
+          const handleCancel = () => {
+              if(apiKey) {
+                  setIsEditing(false);
+                  setInputValue("");
+              }
+          }
+
+          return (
+              <div className="p-4 my-6 bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                          <KeyIcon className="w-6 h-6 text-cyan-400 flex-shrink-0" />
+                          <div>
+                              <h3 className="font-semibold text-white">{translations.apiKeyLabel}</h3>
+                              {apiKey && !isEditing ? (
+                                  <div className="flex items-center gap-2 text-sm text-green-400 mt-1">
+                                      <CheckCircleIcon className="w-4 h-4" />
+                                      <span>{translations.apiKeySaved}</span>
+                                  </div>
+                              ) : (
+                                  <div className="flex items-center gap-2 text-sm text-yellow-400 mt-1">
+                                      <AlertTriangleIcon className="w-4 h-4" />
+                                      <span>{translations.apiKeyMissing}</span>
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+
+                      {isEditing ? (
+                          <div className="w-full sm:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                              <input
+                                  type="password"
+                                  value={inputValue}
+                                  onChange={(e) => setInputValue(e.target.value)}
+                                  placeholder={translations.apiKeyPlaceholder}
+                                  className="flex-grow bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition"
+                                  aria-label={translations.apiKeyLabel}
+                              />
+                              <button onClick={handleSave} className="px-4 py-2 bg-cyan-600 text-white font-semibold rounded-md hover:bg-cyan-500 transition-colors whitespace-nowrap">
+                                  {translations.saveApiKeyButton}
+                              </button>
+                              {apiKey && (
+                                  <button onClick={handleCancel} className="px-4 py-2 bg-gray-700 text-white font-semibold rounded-md hover:bg-gray-600 transition-colors text-sm">
+                                      {translations.cancelButton}
+                                  </button>
+                              )}
+                          </div>
+                      ) : (
+                          <div className="flex items-center gap-2">
+                              <button onClick={() => setIsEditing(true)} className="px-4 py-2 bg-gray-700 text-white font-semibold rounded-md hover:bg-gray-600 transition-colors text-sm">
+                                  {translations.editApiKeyButton}
+                              </button>
+                              <button onClick={handleClear} className="px-4 py-2 bg-red-800/70 text-white font-semibold rounded-md hover:bg-red-700 transition-colors text-sm">
+                                  {translations.clearApiKeyButton}
+                              </button>
+                          </div>
+                      )}
+                  </div>
+              </div>
+          );
+      };
+
+      const LoadingSpinner = ({ translations }) => (
+        <div className="flex flex-col items-center justify-center p-8 text-center bg-gray-800/50 rounded-lg">
+          <div className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+          <h2 className="mt-6 text-xl font-semibold text-gray-200">{translations.loadingTitle}</h2>
+          <p className="mt-2 text-gray-400">{translations.loadingDescription}</p>
+        </div>
+      );
+
+      const AnalysisForm = ({
+        params, setParams, onSubmit, isLoading, language, onLanguageChange, onImageChange, onImageClear,
+        autoRefreshInterval, onAutoRefreshChange, countdown, translations
+      }) => {
+        const fileInputRef = useRef(null);
+        const handleInputChange = (e) => {
+          const { name, value } = e.target;
+          setParams(prev => ({ ...prev, [name]: value }));
+        };
+        const handleTimeframeChange = (timeframe) => {
+          setParams(prev => {
+            const newTimeframes = prev.timeframes.includes(timeframe)
+              ? prev.timeframes.filter(t => t !== timeframe)
+              : [...prev.timeframes, timeframe];
+            return { ...prev, timeframes: newTimeframes };
+          });
+        };
+        const handleHorizonChange = (horizon) => {
+          setParams(prev => ({...prev, horizon}));
+        };
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (!isLoading) onSubmit();
+        };
+        const handleClearImage = () => {
+          onImageClear();
+          if(fileInputRef.current) fileInputRef.current.value = "";
+        }
+        const formatCountdown = (seconds) => {
+          const mins = Math.floor(seconds / 60);
+          const secs = seconds % 60;
+          return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        };
+        return (
+          <form onSubmit={handleSubmit} className="p-8 bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="md:col-span-1">
+                  <label htmlFor="language" className="block text-sm font-medium text-gray-300 mb-2">{translations.languageLabel}</label>
+                  <select id="language" name="language" value={language} onChange={(e) => onLanguageChange(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition">
+                      {LANGUAGE_OPTIONS.map(lang => <option key={lang.code} value={lang.code}>{lang.name}</option>)}
+                  </select>
+              </div>
+              <div className="md:col-span-1">
+                  <label htmlFor="autoRefresh" className="block text-sm font-medium text-gray-300 mb-2">{translations.autoRefreshLabel}</label>
+                  <select id="autoRefresh" name="autoRefresh" value={autoRefreshInterval} onChange={(e) => onAutoRefreshChange(Number(e.target.value))} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition">
+                      {AUTO_REFRESH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+              </div>
+              <div className="md:col-span-2">
+                <label htmlFor="instruments" className="block text-sm font-medium text-gray-300 mb-2">{translations.instrumentsLabel}</label>
+                <input type="text" id="instruments" name="instruments" value={params.instruments} onChange={handleInputChange} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition" placeholder={translations.instrumentsPlaceholder} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">{translations.timeframesLabel}</label>
+                <div className="flex flex-wrap gap-3">
+                  {TIMEFRAMES_OPTIONS.map(tf => (
+                    <label key={tf} className="flex items-center space-x-2 cursor-pointer">
+                      <input type="checkbox" checked={params.timeframes.includes(tf)} onChange={() => handleTimeframeChange(tf)} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-cyan-500 focus:ring-cyan-600" />
+                      <span className="text-gray-300">{tf}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label htmlFor="timezone" className="block text-sm font-medium text-gray-300 mb-2">{translations.timezoneLabel}</label>
+                <select id="timezone" name="timezone" value={params.timezone} onChange={handleInputChange} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition">
+                  {TIMEZONE_OPTIONS.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">{translations.horizonLabel}</label>
+                <div className="flex flex-wrap gap-4">
+                    {HORIZON_OPTIONS.map(h => (
+                        <label key={h} className="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="horizon" value={h} checked={params.horizon === h} onChange={() => handleHorizonChange(h)} className="h-4 w-4 bg-gray-700 border-gray-600 text-cyan-500 focus:ring-cyan-600" />
+                            <span className="text-gray-300">{h}</span>
+                        </label>
+                    ))}
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">{translations.uploadChartLabel}</label>
+                {!params.chartImage ? (
+                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-600 border-dashed rounded-md">
+                    <div className="space-y-1 text-center">
+                      <PaperclipIcon className="mx-auto h-12 w-12 text-gray-500" />
+                      <div className="flex text-sm text-gray-400">
+                        <label htmlFor="file-upload" className="relative cursor-pointer bg-gray-800 rounded-md font-medium text-cyan-400 hover:text-cyan-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-offset-gray-900 focus-within:ring-cyan-500 p-1">
+                          <span>{translations.uploadChartButton}</span>
+                          <input ref={fileInputRef} id="file-upload" name="file-upload" type="file" className="sr-only" onChange={onImageChange} accept="image/png, image/jpeg, image/webp" />
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500">PNG, JPG, WEBP up to 10MB</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 relative">
+                    <img src={`data:${params.chartImage.mimeType};base64,${params.chartImage.data}`} alt="Chart preview" className="rounded-lg w-full max-h-96 object-contain" />
+                    <button type="button" onClick={handleClearImage} className="absolute top-2 right-2 bg-black/60 rounded-full p-1 text-white hover:bg-black/90 transition-colors" aria-label={translations.clearImageButton}>
+                      <XCircleIcon className="w-6 h-6" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="mt-8 pt-6 border-t border-gray-700/50">
+              <div className="flex items-center justify-between">
+                 <div className="text-sm text-gray-400">
+                  {autoRefreshInterval > 0 && !isLoading && (
+                    <span>{translations.nextUpdateIn}: {formatCountdown(countdown)}</span>
+                  )}
+                 </div>
+                 <button type="submit" disabled={isLoading || !params.instruments || params.timeframes.length === 0} className="w-full max-w-xs flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105 disabled:scale-100">
+                  {isLoading ? translations.submitButtonLoading : translations.submitButton}
+                  {!isLoading && <SparklesIcon className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+          </form>
+        );
+      };
+
+      const ParsedContent = React.memo(({ content, sources, sourcesTitle }) => {
+          const timestampRegex = /Analysis Generated At: (.* UTC)/i;
+          const timestampMatch = content.match(timestampRegex);
+          const timestamp = timestampMatch ? timestampMatch[0] : null;
+          const contentWithoutTimestamp = content.replace(timestampRegex, '').trim();
+
+          const sections = useMemo(() => {
+              const sectionHeadings = [
+                  'Strategy Name', 'Core Philosophy', 'Market & Timeframe', 'Trend Detection', 'Entry Rules', 'Exit Rules', 'Risk Management', 'Psychology Rules', 'Optional Enhancements',
+                  'স্ট্র্যাটেজির নাম', 'মূল দর্শন', 'বাজার এবং সময়সীমা', 'প্রবণতা সনাক্তকরণ', 'এন্ট্রি নিয়ম', 'প্রস্থানের নিয়ম', 'ঝুঁকি ব্যবস্থাপনা', 'মনস্তাত্ত্বিক নিয়ম', 'ঐচ্ছিক বর্ধন',
+                  'Watchlist', 'News & Macro', 'Technicals', 'Scenarios', 'Educational Trade Ideas', 'Risks', 'Trading Guidelines', 'Summary', 'Disclaimer',
+                  'Bullish Outlook', 'Bearish Outlook', 'Neutral/Ranging Outlook',
+                  'ওয়াচলিস্ট', 'সংবাদ ও ম্যাক্রো', 'টেকনিক্যালস', 'দৃশ্যকল্প', 'শিক্ষামূলক ট্রেড আইডিয়া', 'ঝুঁকি', 'ট্রেডিং নির্দেশিকা', 'সারসংক্ষেপ', 'দাবিত্যাগ',
+                  'বুলিশ আউটলুক', 'বেয়ারিশ আউটলুক', 'নিরপেক্ষ/রেঞ্জিং আউটলুক',
+                  'Trend Identification', 'Key Support and Resistance Levels', 'Chart Patterns', 'Technical Indicators Analysis', 'News & Macro Catalysts',
+                  'Overall Outlook & Scenarios', 'Educational Trade Idea', 'Summary for Beginners',
+                  'ট্রেন্ড আইডেন্টিফিকেশন', 'কী সাপোর্ট এবং রেজিস্ট্যান্স লেভেল', 'চার্ট প্যাটার্নস', 'টেকনিক্যাল ইন্ডিকেটরস অ্যানালাইসিস', 'নিউজ ও ম্যাক্রো ক্যাটালিস্টস',
+                  'ওভারঅল আউটলুক ও সিনারিওস', 'এডুকেশনাল ট্রেড আইডিয়া', 'সামারি ফর বিগিনার্স'
+              ];
+              const regex = new RegExp(`^\\s*(?:\\*\\*)?(${sectionHeadings.join('|')})(?:\\*\\*)?:?`, 'gim');
+              const parts = contentWithoutTimestamp.split(regex);
+              const result = [];
+              if (parts[0] && parts[0].trim()) result.push({ title: null, body: parts[0].trim() });
+              for (let i = 1; i < parts.length; i += 2) {
+                  result.push({ title: parts[i], body: parts[i + 1]?.trim() });
+              }
+              if (result.length === 0 && contentWithoutTimestamp) return [{ title: 'Analysis', body: contentWithoutTimestamp }];
+              return result.filter(s => s.body);
+          }, [contentWithoutTimestamp]);
+
+          return (
+              <div className="space-y-6">
+                  {timestamp && (<div className="mb-6 text-sm text-gray-500 italic"><p>{timestamp}</p></div>)}
+                  {sections.map((section, index) => (
+                      <div key={index}>
+                          {section.title && <h3 className="text-xl font-semibold text-cyan-300 mb-2">{section.title}</h3>}
+                          <div className="prose prose-invert prose-p:text-gray-300 prose-li:text-gray-300 prose-strong:text-white space-y-2">
+                              {section.body.split('\n').filter(p => p.trim() !== "").map((paragraph, pIndex) => (
+                                  <p key={pIndex}>{paragraph.replace(/\*\*/g, '')}</p>
+                              ))}
+                          </div>
+                      </div>
+                  ))}
+                  {sources && sources.length > 0 && (
+                      <div>
+                          <h3 className="text-xl font-semibold text-cyan-300 mb-3 pt-4 border-t border-gray-700">{sourcesTitle}</h3>
+                          <ul className="space-y-2">
+                              {sources.filter(s => s.web?.uri).map((source, index) => (
+                                 <li key={index} className="flex items-start gap-3">
+                                     <LinkIcon className="w-4 h-4 mt-1 text-gray-500 flex-shrink-0" />
+                                     <a href={source.web.uri} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 hover:underline transition-colors text-sm">
+                                         {source.web.title || new URL(source.web.uri).hostname}
+                                     </a>
+                                 </li>
+                              ))}
+                          </ul>
+                      </div>
+                  )}
+              </div>
+          );
+      });
+
+      const createSpeechQueue = (text) => {
+        const MAX_CHUNK_LENGTH = 250;
+        const queue = [];
+        const cleanText = text.replace(/\*\*/g, '').replace(/(\r\n|\n|\r)/gm, " ").trim();
+        if (!cleanText) return [];
+        const sentences = cleanText.match(/[^.!?]+[.!?]*/g) || [];
+        for (const sentence of sentences) {
+          let currentSentence = sentence.trim();
+          if (currentSentence.length === 0) continue;
+          if (currentSentence.length <= MAX_CHUNK_LENGTH) {
+            queue.push(currentSentence);
+          } else {
+            const words = currentSentence.split(/\s+/);
+            let chunk = '';
+            for (const word of words) {
+              if ((chunk + ' ' + word).length > MAX_CHUNK_LENGTH) {
+                queue.push(chunk);
+                chunk = word;
+              } else {
+                chunk += (chunk.length > 0 ? ' ' : '') + word;
+              }
+            }
+            if (chunk.length > 0) queue.push(chunk);
+          }
+        }
+        return queue;
+      };
+
+      const AnalysisResult = ({ content, sources, language, translations }) => {
+        const [isReading, setIsReading] = useState(false);
+        const [voices, setVoices] = useState([]);
+        const speechController = useRef(null);
+      
+        useEffect(() => {
+          const loadVoices = () => setVoices(window.speechSynthesis.getVoices());
+          loadVoices();
+          window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+          return () => {
+            window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+            if (speechController.current) speechController.current.stop();
+            window.speechSynthesis.cancel();
+          };
+        }, []);
+      
+        const handleToggleSpeech = useCallback(() => {
+          if (isReading) {
+            if (speechController.current) speechController.current.stop();
+          } else {
+            if (!content || voices.length === 0) return;
+            let isCancelled = false;
+            const stop = () => {
+              if (isCancelled) return;
+              isCancelled = true;
+              setIsReading(false);
+              window.speechSynthesis.cancel();
+              speechController.current = null;
+            };
+            speechController.current = { stop };
+            setIsReading(true);
+      
+            let selectedVoice;
+            const langPrefix = language.split('-')[0];
+            if (langPrefix === 'bn') {
+              selectedVoice = voices.find(v => v.lang === 'bn-BD') || voices.find(v => v.lang.startsWith('bn'));
+            } else {
+              selectedVoice = voices.find(v => v.lang === 'en-US') || voices.find(v => v.lang.startsWith('en'));
+            }
+      
+            const chunkQueue = createSpeechQueue(content);
+            let currentChunkIndex = 0;
+            if (chunkQueue.length === 0) { stop(); return; }
+      
+            const speakNextChunk = () => {
+              if (isCancelled || currentChunkIndex >= chunkQueue.length) { stop(); return; }
+              const chunk = chunkQueue[currentChunkIndex];
+              const utterance = new SpeechSynthesisUtterance(chunk);
+              if (selectedVoice) utterance.voice = selectedVoice;
+              utterance.onend = () => { currentChunkIndex++; setTimeout(() => speakNextChunk(), 50); };
+              utterance.onerror = (event) => { if (event.error !== 'interrupted' && event.error !== 'canceled') console.error("Speech synthesis error:", event.error); stop(); };
+              window.speechSynthesis.speak(utterance);
+            };
+            speakNextChunk();
+          }
+        }, [isReading, content, language, voices]);
+      
+        useEffect(() => {
+          if (speechController.current) speechController.current.stop();
+        }, [content]);
+      
+        return (
+          <div className="p-8 bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50">
+            <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-700">
+              <h2 className="text-2xl font-bold text-white">{translations.analysisTitle}</h2>
+              <button onClick={handleToggleSpeech} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled={voices.length === 0 || !content} title={voices.length === 0 ? "No voices available" : ""} aria-live="polite">
+                {isReading ? (<><StopIcon className="w-4 h-4" /><span>{translations.stopReading}</span></>) : (<><SpeakerIcon className="w-4 h-4" /><span>{translations.readAloud}</span></>)}
+              </button>
+            </div>
+            <ParsedContent content={content} sources={sources} sourcesTitle={translations.sourcesTitle} />
+          </div>
+        );
+      };
+
+      const StrategyView = ({ apiKey, language, translations }) => {
+        const [strategy, setStrategy] = useState(null);
+        const [isLoading, setIsLoading] = useState(false);
+        const [error, setError] = useState(null);
+
+        const handleGenerate = async () => {
+            if (!apiKey) {
+                setError(translations.apiKeyMissing);
+                return;
+            }
+            setIsLoading(true);
+            setError(null);
+            setStrategy(null);
+            try {
+                const result = await generateLivermoreStrategy({ apiKey, language });
+                if (result.toLowerCase().startsWith('error:')) {
+                    setError(result);
+                } else {
+                    setStrategy(result);
+                }
+            } catch (e) {
+                setError(e.message);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        return (
+            <div className="mt-8">
+                <div className="p-8 bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50 text-center">
+                    <LightbulbIcon className="mx-auto h-12 w-12 text-yellow-400" />
+                    <h2 className="mt-4 text-2xl font-bold tracking-tight text-white">{translations.strategyTitle}</h2>
+                    <p className="mt-2 text-gray-400 max-w-xl mx-auto">{translations.strategyDescription}</p>
+                    <button 
+                        onClick={handleGenerate} 
+                        disabled={isLoading}
+                        className="mt-6 inline-flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 disabled:scale-100"
+                    >
+                        {isLoading ? translations.strategyLoading : translations.generateStrategyButton}
+                        {!isLoading && <SparklesIcon className="w-5 h-5" />}
+                    </button>
+                </div>
+
+                <div className="mt-8">
+                    {isLoading && <LoadingSpinner translations={{...translations, loadingTitle: translations.strategyLoading, loadingDescription: ''}} />}
+                    {error && (
+                        <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg" role="alert">
+                            <strong className="font-bold">{translations.errorTitle}</strong>
+                            <span className="block sm:inline">{error.replace(/^error:\s*/i, '')}</span>
+                        </div>
+                    )}
+                    {strategy && (
+                        <div className="p-8 bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50">
+                            <ParsedContent content={strategy} sources={[]} sourcesTitle="" />
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+      };
+      // --- END COMPONENTS ---
+
+      // --- START APP ---
+      const App = () => {
+          const [language, setLanguage] = useState(LANGUAGE_OPTIONS[0].code);
+          const [apiKey, setApiKey] = useState("");
+          const [activeTab, setActiveTab] = useState('analysis');
+          const [params, setParams] = useState({
+              instruments: 'EURUSD, XAUUSD',
+              timeframes: ['H4', 'D1'],
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone in TIMEZONE_OPTIONS ? Intl.DateTimeFormat().resolvedOptions().timeZone : TIMEZONE_OPTIONS[0],
+              horizon: HORIZON_OPTIONS[1],
+              language: language,
+          });
+          const [result, setResult] = useState(null);
+          const [isLoading, setIsLoading] = useState(false);
+          const [error, setError] = useState(null);
+          const [autoRefreshInterval, setAutoRefreshInterval] = useState(0);
+          const [countdown, setCountdown] = useState(0);
+          
+          const translations = useMemo(() => TRANSLATIONS[language], [language]);
+          const timerRef = useRef(null);
+          const countdownRef = useRef(null);
+          
+          useEffect(() => {
+              const savedKey = localStorage.getItem('gemini-api-key');
+              if (savedKey) {
+                  setApiKey(savedKey);
+              }
+          }, []);
+
+          const handleApiKeySave = (key) => {
+              setApiKey(key);
+              if (key) {
+                  localStorage.setItem('gemini-api-key', key);
+              } else {
+                  localStorage.removeItem('gemini-api-key');
+              }
+          };
+      
+          const handleSubmit = useCallback(async (isAutoRefresh = false) => {
+              if (isLoading) return;
+              if (!params.instruments.trim() || params.timeframes.length === 0) {
+                  setError("Please provide instruments and select at least one timeframe.");
+                  return;
+              }
+              if (!apiKey) {
+                  setError(translations.apiKeyMissing);
+                  return;
+              }
+              setIsLoading(true);
+              if(!isAutoRefresh) {
+                 setError(null);
+                 setResult(null);
+              }
+              try {
+                  const analysisResult = await generateAnalysis({ ...params, apiKey, language });
+                  if (analysisResult.text.toLowerCase().startsWith('error:')) {
+                      setError(analysisResult.text);
+                      setResult(null);
+                  } else {
+                      setResult(analysisResult);
+                      setError(null);
+                  }
+              } catch (e) {
+                  const errorMessage = e instanceof Error ? e.message : "An unexpected error occurred.";
+                  setError(`Failed to generate analysis: ${errorMessage}`);
+                  console.error(e);
+              } finally {
+                  setIsLoading(false);
+                  if (autoRefreshInterval > 0) {
+                      setCountdown(autoRefreshInterval);
+                  }
+              }
+          }, [params, isLoading, autoRefreshInterval, apiKey, language, translations]);
+      
+          const handleAutoRefreshChange = (interval) => {
+              setAutoRefreshInterval(interval);
+              if (interval === 0) {
+                  setCountdown(0);
+              } else {
+                  setCountdown(interval);
+                  if (!result && !isLoading) {
+                     setCountdown(0);
+                  }
+              }
+          };
+      
+          useEffect(() => {
+              if (autoRefreshInterval === 0) {
+                  if (timerRef.current) clearInterval(timerRef.current);
+                  if (countdownRef.current) clearInterval(countdownRef.current);
+                  return;
+              }
+              if (result && !isLoading) {
+                   timerRef.current = setInterval(() => handleSubmit(true), autoRefreshInterval * 1000);
+              }
+              countdownRef.current = setInterval(() => setCountdown(prev => (prev > 0 ? prev - 1 : 0)), 1000);
+              return () => {
+                  if (timerRef.current) clearInterval(timerRef.current);
+                  if (countdownRef.current) clearInterval(countdownRef.current);
+              };
+          }, [autoRefreshInterval, result, isLoading, handleSubmit]);
+      
+          const handleLanguageChange = (langCode) => {
+              setLanguage(langCode);
+              setParams(prev => ({...prev, language: langCode}));
+          }
+      
+          const handleImageChange = (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                  const base64String = (reader.result).split(',')[1];
+                  setParams(prev => ({...prev, chartImage: { mimeType: file.type, data: base64String }}));
+              };
+              reader.readAsDataURL(file);
+          };
+      
+          const handleImageClear = () => {
+              setParams(prev => {
+                  const { chartImage, ...rest } = prev;
+                  return rest;
+              });
+          };
+      
+          const TabButton = ({ isActive, onClick, children }) => (
+            <button
+                onClick={onClick}
+                className={`px-6 py-2 text-sm font-medium rounded-t-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500
+                    ${isActive
+                        ? 'bg-gray-800/50 border-b-2 border-cyan-400 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800/20'
+                    }`}
+            >
+                {children}
+            </button>
+          );
+
+          return (
+              <div className="min-h-screen bg-gray-900 text-white font-sans">
+                  <div className="container mx-auto px-4 py-8 max-w-4xl">
+                      <Header translations={translations} />
+                      <main className="mt-8">
+                          <ApiKeyManager apiKey={apiKey} onApiKeySave={handleApiKeySave} translations={translations} />
+
+                           <div className="mb-8 border-b border-gray-700/50">
+                                <nav className="flex space-x-2">
+                                    <TabButton isActive={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')}>
+                                        {translations.analysisTab}
+                                    </TabButton>
+                                    <TabButton isActive={activeTab === 'strategy'} onClick={() => setActiveTab('strategy')}>
+                                        {translations.strategyTab}
+                                    </TabButton>
+                                </nav>
+                            </div>
+                          
+                          {activeTab === 'analysis' && (
+                            <>
+                              <AnalysisForm
+                                  params={params} setParams={setParams} onSubmit={() => handleSubmit(false)} isLoading={isLoading}
+                                  language={language} onLanguageChange={handleLanguageChange} onImageChange={handleImageChange}
+                                  onImageClear={handleImageClear} autoRefreshInterval={autoRefreshInterval}
+                                  onAutoRefreshChange={handleAutoRefreshChange} countdown={countdown} translations={translations} />
+                              <div className="mt-8">
+                                  {!isLoading && !result && !error && (
+                                      <div className="p-4 text-center text-gray-500 text-sm">
+                                          <p>{translations.placeholderTitle}</p>
+                                          <p className="mt-1 italic">{translations.placeholderDescription}</p>
+                                      </div>
+                                  )}
+                                  {isLoading && !result && <LoadingSpinner translations={translations} />}
+                                  {error && (
+                                      <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg" role="alert">
+                                          <strong className="font-bold">{translations.errorTitle}</strong>
+                                          <span className="block sm:inline">{error.replace(/^error:\s*/i, '')}</span>
+                                      </div>
+                                  )}
+                                  {result && <AnalysisResult content={result.text} sources={result.sources} language={language} translations={translations} />}
+                              </div>
+                            </>
+                          )}
+
+                          {activeTab === 'strategy' && (
+                            <StrategyView apiKey={apiKey} language={language} translations={translations} />
+                          )}
+
+                      </main>
+                  </div>
+              </div>
+          );
+      };
+      // --- END APP ---
+
+      // --- START RENDER ---
+      const rootElement = document.getElementById('root');
+      if (!rootElement) {
+        throw new Error("Could not find root element to mount to");
+      }
+      const root = ReactDOM.createRoot(rootElement);
+      root.render(
+        <React.StrictMode>
+          <App />
+        </React.StrictMode>
+      );
+      // --- END RENDER ---
+    </script>
+  </body>
+</html>
